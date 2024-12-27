@@ -35,7 +35,7 @@ func (c *Cache) Get(_ context.Context, key string, out any) error {
 		c.storage.Delete(key)
 		return errors.New("key expired")
 	}
-
+	
 	return json.Unmarshal(item.value, out)
 }
 

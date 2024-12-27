@@ -6,18 +6,19 @@ import (
 	"fmt"
 	"github.com/ory/dockertest/v3"
 	"github.com/redis/go-redis/v9"
-	"github.com/stretchr/testify/require"
+	"go.mongodb.org/mongo-driver/v2/mongo"
+	"go.mongodb.org/mongo-driver/v2/mongo/options"
 	"net"
 	"testing"
 )
 
-func CreateMySQLContainer(t *testing.T, password string) string {
+func CreateMySQLContainer(ctx context.Context, t *testing.T, password string) (string, func() error) {
 	pool, err := dockertest.NewPool("")
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	err = pool.Client.Ping()
+	err = pool.Client.PingWithContext(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -26,11 +27,9 @@ func CreateMySQLContainer(t *testing.T, password string) string {
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() {
-		if err := pool.Purge(resource); err != nil {
-			t.Fatalf("Could not purge resource: %s", err)
-		}
-	})
+	cleanup := func() error {
+		return pool.Purge(resource)
+	}
 
 	addr := net.JoinHostPort("localhost", resource.GetPort("3306/tcp"))
 
@@ -39,21 +38,22 @@ func CreateMySQLContainer(t *testing.T, password string) string {
 		if err != nil {
 			return err
 		}
-		return db.Ping()
+		return db.PingContext(ctx)
 	}); err != nil {
+		_ = cleanup()
 		t.Fatal(err)
 	}
 
-	return addr
+	return addr, cleanup
 }
 
-func CreateRedisContainer(t *testing.T) string {
+func CreateRedisContainer(ctx context.Context, t *testing.T) (string, func() error) {
 	pool, err := dockertest.NewPool("")
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	err = pool.Client.Ping()
+	err = pool.Client.PingWithContext(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -62,35 +62,55 @@ func CreateRedisContainer(t *testing.T) string {
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() {
-		if err := pool.Purge(resource); err != nil {
-			t.Fatalf("Could not purge resource: %s", err)
-		}
-	})
+	cleanup := func() error {
+		return pool.Purge(resource)
+	}
 
 	addr := net.JoinHostPort("localhost", resource.GetPort("6379/tcp"))
 
 	if err := pool.Retry(func() error {
 		client := redis.NewClient(&redis.Options{Addr: addr})
 		defer client.Close()
-		return client.Ping(context.Background()).Err()
+		return client.Ping(ctx).Err()
 	}); err != nil {
+		_ = cleanup()
 		t.Fatal(err)
 	}
 
-	return addr
+	return addr, cleanup
 }
 
-func CreateMySQLItemsTable(t *testing.T, db *sql.DB) {
-	_, err := db.Exec(`
-	CREATE TABLE IF NOT EXISTS items (
-		id INT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
-		name VARCHAR(255) NOT NULL,
-		value VARCHAR(255) NULL,
-		version INT NOT NULL DEFAULT 1,
-		created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP, 
-		updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-		INDEX (name)
-	)`)
-	require.NoError(t, err)
+func CreateMongoDBContainer(ctx context.Context, t *testing.T) (string, func() error) {
+	pool, err := dockertest.NewPool("")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	err = pool.Client.PingWithContext(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	resource, err := pool.Run("mongo", "5.0", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cleanup := func() error {
+		return pool.Purge(resource)
+	}
+
+	addr := net.JoinHostPort("localhost", resource.GetPort("27017/tcp"))
+
+	if err := pool.Retry(func() error {
+		client, err := mongo.Connect(options.Client().ApplyURI("mongodb://" + addr))
+		if err != nil {
+			return err
+		}
+		return client.Ping(ctx, nil)
+	}); err != nil {
+		_ = cleanup()
+		t.Fatal(err)
+	}
+
+	return addr, cleanup
 }

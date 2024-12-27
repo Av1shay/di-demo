@@ -2,20 +2,16 @@ package mongo
 
 import (
 	"context"
-	"errors"
 	"fmt"
-	"github.com/Av1shay/di-demo/pkg/types"
-	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/v2/bson"
 	"go.mongodb.org/mongo-driver/v2/mongo"
 	"go.mongodb.org/mongo-driver/v2/mongo/options"
+	"time"
 )
 
-const itemCollName = "items"
-
 type Repository struct {
-	client *mongo.Client
-	dbName string
+	client    *mongo.Client
+	itemsColl *mongo.Collection
 }
 
 func NewRepository(uri, dbName string) (*Repository, error) {
@@ -23,89 +19,37 @@ func NewRepository(uri, dbName string) (*Repository, error) {
 	if err != nil {
 		return nil, err
 	}
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	if err := client.Ping(ctx, nil); err != nil {
+		return nil, fmt.Errorf("failed to ping mongo: %w", err)
+	}
+
+	itemsColl := client.Database(dbName).Collection(itemCollName)
+	indexModel := mongo.IndexModel{
+		Keys: bson.D{
+			{Key: "name", Value: 1},
+			{Key: "account_id", Value: 1},
+		},
+		Options: options.Index().SetUnique(true),
+	}
+	if _, err := itemsColl.Indexes().CreateOne(ctx, indexModel); err != nil {
+		return nil, fmt.Errorf("failed to create item name-account index: %w", err)
+	}
+
 	return &Repository{
-		client: client,
-		dbName: dbName,
+		client:    client,
+		itemsColl: itemsColl,
 	}, nil
 }
 
-func (r *Repository) GetItemByName(ctx context.Context, name string) (types.Item, error) {
-	collection := r.client.Database(r.dbName).Collection(itemCollName)
-
-	var item Item
-	err := collection.FindOne(ctx, bson.M{"name": name}).Decode(&item)
-	if err != nil {
-		if errors.Is(err, mongo.ErrNoDocuments) {
-			return types.Item{}, &types.APIError{
-				Code: types.ErrorCodeNotFound,
-				Msg:  fmt.Sprintf("item with name %s not found", name),
-			}
-		}
-		return types.Item{}, err
-	}
-
-	return parseItem(item), nil
-}
-
-func (r *Repository) SaveItem(ctx context.Context, input types.ItemCreateInput) (types.Item, error) {
-	collection := r.client.Database(r.dbName).Collection(itemCollName)
-
-	item := Item{
-		ID:    primitive.NewObjectID(),
-		Name:  input.Name,
-		Value: input.Value,
-	}
-	_, err := collection.InsertOne(ctx, item)
-	if err != nil {
-		return types.Item{}, err
-	}
-
-	return r.GetItemByName(ctx, input.Name)
-}
-
-func (r *Repository) ListItems(ctx context.Context) ([]types.Item, error) {
-	collection := r.client.Database(r.dbName).Collection(itemCollName)
-
-	cur, err := collection.Find(ctx, bson.D{})
-	if err != nil {
-		if errors.Is(err, mongo.ErrNoDocuments) {
-			return nil, nil
-		}
-		return nil, err
-	}
-	defer cur.Close(ctx)
-
-	var res []types.Item
-	for cur.Next(ctx) {
-		var item Item
-		err := cur.Decode(&item)
-		if err != nil {
-			return nil, err
-		}
-		res = append(res, parseItem(item))
-	}
-	if err := cur.Err(); err != nil {
-		return nil, err
-	}
-
-	return res, nil
-}
-
-func (r *Repository) DeleteItem(ctx context.Context, id string) error {
-	_, err := r.client.Database(r.dbName).Collection(itemCollName).DeleteOne(ctx, bson.D{{"_id", id}})
-	return err
-}
-
 func (r *Repository) Close(ctx context.Context) error {
+	if r.client == nil {
+		return nil
+	}
 	return r.client.Disconnect(ctx)
 }
 
-func parseItem(item Item) types.Item {
-	return types.Item{
-		ID:        item.ID.Hex(),
-		Name:      item.Name,
-		Value:     item.Value,
-		CreatedAt: item.CreatedAt,
-		UpdatedAt: item.UpdatedAt,
-	}
+func (r *Repository) Ping(ctx context.Context) error {
+	return r.client.Ping(ctx, nil)
 }

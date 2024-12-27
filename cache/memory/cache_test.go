@@ -22,7 +22,7 @@ func TestCache_Get(t *testing.T) {
 	if err := c.Set(ctx, key1, val1, time.Second); err != nil {
 		t.Fatal(err)
 	}
-	var cacheRes1 cacheItem
+	var cacheRes1 cacheVal
 	if err := c.Get(ctx, key1, &cacheRes1); err != nil {
 		t.Fatal(err)
 	}
@@ -45,7 +45,8 @@ func TestCache_Get(t *testing.T) {
 	}
 
 	time.Sleep(time.Millisecond)
-	err = c.Get(ctx, key1, &cacheRes1)
+	var cacheRes2 cacheVal
+	err = c.Get(ctx, key2, &cacheRes2)
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
