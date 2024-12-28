@@ -23,10 +23,7 @@ func (e *AppError) Error() string {
 	return fmt.Sprintf("[%s]: %s", e.Code, e.Msg)
 }
 
-func NewAppErr(err error, msg string, code ErrorCode) error {
-	if msg == "" && err != nil {
-		msg = err.Error()
-	}
+func NewAppErr(err error, msg string, code ErrorCode) *AppError {
 	return &AppError{
 		Code: code,
 		Msg:  msg,
@@ -34,18 +31,18 @@ func NewAppErr(err error, msg string, code ErrorCode) error {
 	}
 }
 
-func NewUnauthorizedErr(err error, msg string) error {
+func NewUnauthorizedErr(err error, msg string) *AppError {
 	return NewAppErr(err, msg, ErrorCodeUnauthorized)
 }
 
-func NewInternalServerErr(err error, msg string) error {
+func NewInternalServerErr(err error, msg string) *AppError {
 	return NewAppErr(err, msg, ErrorCodeInternal)
 }
 
-func NewNotFoundErr(err error, msg string) error {
+func NewNotFoundErr(err error, msg string) *AppError {
 	return NewAppErr(err, msg, ErrorCodeNotFound)
 }
 
-func NewBadRequestErr(err error, msg string) error {
+func NewBadRequestErr(err error, msg string) *AppError {
 	return NewAppErr(err, msg, ErrorCodeBadRequest)
 }

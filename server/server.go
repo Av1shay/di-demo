@@ -124,17 +124,7 @@ func successResponse(ctx context.Context, w http.ResponseWriter, code int, val a
 func errorResponse(ctx context.Context, w http.ResponseWriter, err error) {
 	w.Header().Set("Content-Type", "application/json")
 
-	code := http.StatusInternalServerError
-	msg := "Something went wrong"
-
-	var apiErr *errs.AppError
-	if errors.As(err, &apiErr) {
-		if c, ok := errCodeToHttpCode[apiErr.Code]; ok {
-			code = c
-		}
-		msg = apiErr.Msg
-		err = apiErr.Err
-	}
+	code, msg, err := parseErr(err)
 
 	if code == http.StatusInternalServerError {
 		log.Errorf(ctx, "Server error: %v", err)
@@ -142,4 +132,22 @@ func errorResponse(ctx context.Context, w http.ResponseWriter, err error) {
 
 	w.WriteHeader(code)
 	_ = json.NewEncoder(w).Encode(map[string]string{"error": msg})
+}
+
+func parseErr(err error) (int, string, error) {
+	code := http.StatusInternalServerError
+	msg := "Something went wrong"
+	var apiErr *errs.AppError
+	if errors.As(err, &apiErr) {
+		if c, ok := errCodeToHttpCode[apiErr.Code]; ok {
+			code = c
+		}
+		msg = apiErr.Msg
+		if msg == "" && apiErr.Err != nil {
+			msg = apiErr.Err.Error()
+		}
+		err = apiErr.Err
+	}
+
+	return code, msg, err
 }
